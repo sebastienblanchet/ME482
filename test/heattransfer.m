@@ -39,6 +39,7 @@ T2 = 0;
 % Setup while loop for real time plotting
 figure(1)
 hold on
+
 while numel(T1) < ( interv + 1)
 
     % Get analog readings

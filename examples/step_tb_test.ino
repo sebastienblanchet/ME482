@@ -32,7 +32,7 @@ void setup()
     pinMode(STEPENABLE, OUTPUT);
     pinMode(STEPDIR, OUTPUT);
     pinMode(STEPPULSE, OUTPUT);
-    digitalWrite( STEPENABLE, LOW);
+    digitalWrite(STEPENABLE, LOW);
     digitalWrite(STEPDIR, HIGH);
     digitalWrite(STEPPULSE, HIGH);
 }

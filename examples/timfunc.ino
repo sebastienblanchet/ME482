@@ -11,13 +11,12 @@ void setup() {
 }
 
 void loop() {
-    // https://www.arduino.cc/reference/en/language/functions/time/micros/
-    unsigned long start = micros();
+
+    unsigned long start = millis();
+
     // Call to your function
     myFunction();
+
     // Compute the time it took
-    // unsigned long end = micros();
-    unsigned long delta = micros() - start;
-    // unsigned long delta = end - start;
-    Serial.println(delta)
+    unsigned long delta = millis() - start;
 }

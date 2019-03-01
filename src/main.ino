@@ -28,8 +28,19 @@
  */
 
 
+/* Hardware specifics */
+#define MAXCOUNT 1023 // Max ADC counts
+#define VREF 5 // Arduino reference voltage
+#define RNOM 110000 // Thermistor resistance at 25 deg C
+#define BCOEF 3950 // Thermistor B value for steinhart equation
+#define RSERIES 10000 // Pull up series resistor for thermistor sense
+#define ISENSK 10 // Current sensor gain (i.e 1 V / 100mV/A)
+#define ISENSOFF 25 // Current sensor offset (i.e 2.5 V / 100 mV/A)
+#define TNOM 25 // Nominal temperature room temp 25 def C
+#define STEPS 200 // Number of steps per rev
+
 /* Pinout for hardware */
-#define HWINT        2   // hardware interupt
+#define HWINT        2   // hardware interrupt
 #define KHEATERS     4   // heaters relay pin
 #define BUZZ         5   // buzzer PWM line
 #define LEDPIN       6   // controls LED in UI
@@ -48,36 +59,34 @@
 // uint32_t tDelta;
 
 
-/* Helper function for pin pulse */
-void pinPulse(int pinNum, int delayMs)
+/* Get actual current sensor value */
+float getIsens()
 {
-    digitalWrite(pinNum, HIGH);
-    delay(delayMs);
-    digitalWrite(pinNum, LOW);
-    delay(delayMs);
+    // Map analog counts to voltage
+    float voltIsens = map(analogRead(ISENS), 0, MAXCOUNT, 0, VREF);
+
+    // Calculate measured current
+    float current = (ISENSK * voltIsens) + ISENSOFF;
+
+    return current;
 }
 
 
 /* Get actual temperature reading */
-float get_steinhart(uint32_t countIn) {
+float get_steinhart(uint32_t countIn) 
+{
+    // Convert counts to resistance
+    float Rin = RSERIES / ((1023 / countIn - 1));
 
-    const float Rnom = 110000.0;
-    const float B = 3950.0;
-    const float Tnom = 25.0;
-    const float Rseries = 10000;
+    // TODO: clean up equation
+    // Tout = Rin / RNOM;     // (R/Ro)
+    // Tout = log(Tout);                  // ln(R/Ro)
+    // Tout /= BCOEF;                   // 1/B * ln(R/Ro)
+    // Tout += 1.0 / (TNOM + 273.15); // + (1/To)
+    // Tout = 1.0 / Tout;                 // Invert
+    // Tout -= 273.15;                         // convert to C
 
-    float Tout;
-
-    countIn = (float) (1023 / countIn - 1);
-
-    float Rin = Rseries / countIn;
-
-    Tout = Rin / Rnom;     // (R/Ro)
-    Tout = log(Tout);                  // ln(R/Ro)
-    Tout /= B;                   // 1/B * ln(R/Ro)
-    Tout += 1.0 / (Tnom + 273.15); // + (1/To)
-    Tout = 1.0 / Tout;                 // Invert
-    Tout -= 273.15;                         // convert to C
+    float Tout =  (1.0 / ((1 / BCOEF) * log(Rin / RNOM)) + (1.0 / (TNOM + 273.15))) - 273.15;
 
     return  Tout;
 }
@@ -95,14 +104,31 @@ uint32_t avgTemp()
     return avgTemp;
 }
 
+/* Helper function for pin pulse */
+void pinPulse(int pinNum, int delayMs)
+{
+    // Set pin high and wait
+    digitalWrite(pinNum, HIGH);
+    delay(delayMs);
+
+    // Return pin to low and wait
+    digitalWrite(pinNum, LOW);
+    delay(delayMs);
+}
+
+uint32_t getMotorTus(uint32_t motorSpeedRPM)
+{
+    uint32_t motorTus;
+
+    motorTus = (60000000) / (STEPS * motorSpeedRPM);
+
+    return motorTus;
+}
+
 
 /* Wind the motor to stall */
-void windMotor(uint32_t windTus, uint32_t Imax)
+void windMotor(uint32_t windSpeedRPM, uint32_t ImaxA)
 {
-    // Corresponds to 2.5 A from motor
-    // const uint32_t maxCurrentCounts = 200;
-    // TODO: write a function which converts motor speed to us
-
     // Write enable
     digitalWrite(STEPENABLE, HIGH);
     // Set CW motor direction
@@ -110,11 +136,13 @@ void windMotor(uint32_t windTus, uint32_t Imax)
     digitalWrite(STEPDIR, HIGH);
     // Set pulse low
     digitalWrite(STEPPULSE, LOW);
+    bool pulse = LOW;
 
-    boolean pulse = LOW;
+    // Get motor period from speed
+    uint32_t windTus = getMotorTus(windSpeedRPM);
 
     // Spin motor to stall
-    while ( analogRead(ISENS) <=  Imax)
+    while ( getIsens() <=  ImaxA )
     {
         pulse = !pulse;
         digitalWrite(STEPPULSE, pulse);
@@ -124,47 +152,47 @@ void windMotor(uint32_t windTus, uint32_t Imax)
 
 
 /* Heat up the substance */
-void heatSubstance(uint32_t heatTime)
+void heatSubstance(float TRefC, uint32_t heatTms)
 {
     // TODO: finish function which converts temp to counts
-    const uint32_t TRefCounts = 750; // Corresponds to 130 deg C at platen
-    const uint32_t tolCounts = 10;   // Corresponds to 5 deg C
-    const uint32_t Thi  = TRefCounts + tolCounts; // Maximum limit
-    const uint32_t Tlo  = TRefCounts - tolCounts; // Lower limit
+    const float TtolC = 10;   // Corresponds to 5 deg C
+    const float TmaxC  = TRefC + TtolC; // Hysteresis max
+    const float TminC  = TRefC - TtolC; // Hysteresis min
 
     // Define timing variables
     uint32_t tStart = millis();
     uint32_t tEnd = tStart;
+    uint32_t elapsed = tEnd - tStart;
 
     // Define average temp
-    uint32_t TAvg = avgTemp();
+    float TAvgC = avgTemp();
 
     // Turn on the heaters to begin warming up
     digitalWrite(KHEATERS, HIGH);
 
     // Wait for platen to heat up (i.e. not in hysteresis)
-    while ( !( (TAvg >= Tlo) && ( TAvg <= Thi) ) )
+    while ( !( (TAvgC >= TminC) && ( TAvgC <= TmaxC) ) )
     {
         // Update the current temp
-        TAvg = avgTemp();
+        TAvgC = avgTemp();
     }
 
     // Turn the heaters off
     digitalWrite(KHEATERS, LOW);
 
     // Heat up substance for an hour with hysteresis control, run at 1Hz
-    while ( (tEnd - tStart) <= heatTime )
+    while ( elapsed <= heatTms )
     {
         // Get current temp
-        TAvg = avgTemp();
+        TAvgC = avgTemp();
 
         // Hysteresis control
-        if ( TAvg > Thi )
+        if ( TAvgC > TmaxC )
         {
             // Turn the heaters off
             digitalWrite(KHEATERS, LOW);
         }
-        else if (TAvg < Tlo)
+        else if (TAvgC < TminC)
         {
             // Turn on the heaters
             digitalWrite(KHEATERS, HIGH);
@@ -174,7 +202,7 @@ void heatSubstance(uint32_t heatTime)
         delay(1000);
 
         // Update elapsed time
-        tEnd = millis();
+        elapsed = millis() - tStart;
     }
 
     // Turn on fan
@@ -183,16 +211,19 @@ void heatSubstance(uint32_t heatTime)
 
 
 /* Unwind the motor to limit switch */
-void unwindMotor(uint32_t windTus)
+void unwindMotor(uint32_t windSpeedRPM)
 {
+    // TODO: confirm direction
     // Write enable
     digitalWrite(STEPENABLE, HIGH);
     // Set CCW motor direction
     digitalWrite(STEPDIR, LOW);
     // Set pulse low
     digitalWrite(STEPPULSE, LOW);
+    bool pulse = LOW;
 
-    boolean pulse = LOW;
+    // Get motor period from speed
+    uint32_t windTus = getMotorTus(windSpeedRPM);
 
     // Spin motor to until limit switch is depressed
     while ( !digitalRead(LIMITSW) )
@@ -203,29 +234,29 @@ void unwindMotor(uint32_t windTus)
     }
 }
 
-
 /* Flash LED and BUZZ*/
-void buzzFlash(uint32_t buzzFlashTime)
+void buzzFlash(uint32_t buzzFlashTms)
 {
     // Define timing variables
     uint32_t tStart = millis();
     uint32_t tEnd = tStart;
+    uint32_t elapsed = tEnd - tStart;
 
-    // buzz and flash for 10 seconds
-    while ( (tEnd - tStart) <= buzzFlashTime )
+    // buzz and flash for specified time
+    while ( elapsed <= buzzFlashTms )
     {
         // TODO: specify time and pulse rate
         // Pulse at X Hz
         tone(BUZZ, 500);
         // Pulse LED at X ms
         pinPulse(LEDPIN, 500);
-        tEnd = millis();
+
+        // Update elapsed time
+        elapsed = millis() - tStart;
     }
 
     // turn buzzer off
     noTone(BUZZ);
-    // turn off LED
-    digitalWrite(LEDPIN, LOW);
 }
 
 
@@ -243,11 +274,14 @@ void setup()
     pinMode(STEPDIR,    OUTPUT);
     pinMode(STEPPULSE,  OUTPUT);
 
-    // Attach interupt to HWINT
+    // Attach interrupt to HWINT
     attachInterrupt(0, swISR, CHANGE);
 
     // Set LED to low
     digitalWrite(LEDPIN, LOW);
+
+    // Set up serial port for debug
+    Serial.begin(9600);
 }
 
 
@@ -255,29 +289,33 @@ void setup()
 void loop()
 {
     // Calibrations
-    const uint32_t buzzFlashTime = 10000;   // Time period for buzz and flash
-    const uint32_t heatTime = 3600000;      // Time to heat up substance in ms
-    const uint32_t windTus = 250;           // Motor speed
-    const uint32_t Imax = 500;              // Max current counts
-
+    const uint32_t windSpeedRPM = 100;           // Motor speed RPM
+    const uint32_t ImaxA = 500;              // Max current counts
+    const float TRefC = 120.0;              // Reference platen temp
+    const uint32_t heatTms = 3600000;      // Time to heat up substance in ms
+    const uint32_t buzzFlashTms = 10000;   // Time period for buzz and flash
 
     // Check if user has decided to start
     if ( digitalRead(STARTSW) == HIGH )
     {
         // Keep LEDPIN high to notify user
         digitalWrite(LEDPIN, HIGH);
+        Serial.print("Main routine has STARTED ");
 
         // Wind the motor to stall
-        windMotor(windTus, Imax);
+        windMotor(windSpeedRPM, ImaxA);
 
         // Heat up the substance for X time
-        heatSubstance(heatTime);
+        heatSubstance(TRefC, heatTms);
 
         // Unwind the motor to start position
-        unwindMotor(windTus);
+        unwindMotor(windSpeedRPM);
 
         // Notify user that program has finished
-        buzzFlash(buzzFlashTime);
+        buzzFlash(buzzFlashTms);
+
+        // Turn LEDPIN off to notify end of routine
+        digitalWrite(LEDPIN, LOW);
     }
 
 }

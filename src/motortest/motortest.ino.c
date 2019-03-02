@@ -59,13 +59,21 @@
 
 
 /*************************************************************************************************
+
+GLOBALS
+
 **************************************************************************************************/
 
 /* Global variables */
-bool pulse = LOW;
-uint32_t intervalms = getMotorTus(100);
+boolean pulse = LOW;
+const int FWD = 578;
+const int BWD = 448;
+const int speedMAX = 300;
 
 /*************************************************************************************************
+
+HELPER FUNCTIONS
+
 **************************************************************************************************/
 
 uint32_t getMotorTus(uint32_t motorSpeedRPM)
@@ -77,12 +85,21 @@ uint32_t getMotorTus(uint32_t motorSpeedRPM)
     return motorTus;
 }
 
+uint32_t intervalms = getMotorTus(speedMAX);
+
 void motorPulse()
 {   
     pulse = !pulse;
     digitalWrite(STEPPULSE, pulse);
     delayMicroseconds(intervalms);
 }
+
+
+/*************************************************************************************************
+
+MAIN
+
+**************************************************************************************************/
 
 /* Setup the Arduino hardware */
 void setup()
@@ -97,49 +114,29 @@ void setup()
     pinMode(STEPENABLE, OUTPUT);
     pinMode(STEPDIR,    OUTPUT);
     pinMode(STEPPULSE,  OUTPUT);
-
     digitalWrite(STEPENABLE, LOW);
-
-    // Set up serial port for debug
-    Serial.begin(9600);
 }
 
 
 /* Main Routine */
 void loop()
 {
-    // Calibrations values
+    int speedCounts = analogRead(A5);
 
-    // float speedCount = map(analogRead(A5), 0, 1023, -1, 1);
+    // float speedPCT = map(speedCounts, 0, 1023, -1, 1) 
+    // int speedRPM = (abs(speedPCT)) * speedMAX;
 
-    // Serial.println(speedCount);
-
-    // uint32_t speedRPM = windSpeedRPMMax * abs(speedCount);
-
-    // Write enable
-
-    // Check if user has decided to start
-    if ( analogRead(A5) > 550 )
+    if ( speedCounts > FWD )
     {
-        Serial.println("*********** FWD ***********");
-
         digitalWrite(STEPDIR, HIGH);
-
         motorPulse();
 
     }
-    else if ( analogRead(A5)<  450 )
-    {      
-        Serial.println("*********** BWD ***********");
-        
+    else if ( speedCounts <  BWD )
+    {              
         digitalWrite(STEPDIR, LOW);
-
         motorPulse();
 
-    }
-    else
-    {
-        Serial.println("*********** STOPPED ***********");
     }
 
 }

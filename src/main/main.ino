@@ -316,18 +316,17 @@ void setup()
     Serial.begin(9600);
 }
 
+// Calibrations values
+const uint32_t windSpeedRPM = 100;   // Motor speed
+const uint32_t ImaxA = 3.0;          // Max current (i.e. represents stall)
+const float TRefC = 120.0;           // Reference platen temp
+const float THystC = 5.0;            // Hysteresis band
+const uint32_t heatTms = 3600000;    // Time to heat up substance in ms
+const uint32_t buzzFlashTms = 10000; // Time period for buzz and flash
 
 /* Main Routine */
 void loop()
 {
-    // Calibrations values
-    const uint32_t windSpeedRPM = 100;   // Motor speed
-    const uint32_t ImaxA = 3.0;          // Max current (i.e. represents stall)
-    const float TRefC = 120.0;           // Reference platen temp
-    const float THystC = 5.0;            // Hysteresis band
-    const uint32_t heatTms = 3600000;    // Time to heat up substance in ms
-    const uint32_t buzzFlashTms = 10000; // Time period for buzz and flash
-
     // Check if user has decided to start
     if ( digitalRead(STARTSW) == HIGH )
     {

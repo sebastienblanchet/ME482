@@ -7,14 +7,25 @@
  */
 
 /* Pinout */
-#define STEPENABLE 2
-#define STEPDIR    3
-#define STEPPULSE  4
+#define STEPENABLE 9
+#define STEPDIR    10
+#define STEPPULSE  11
+#define STEPS 400
 
 /* Globals */
-const int intervalms = 350;
 boolean pulse = LOW;
 
+
+uint32_t getMotorTus(uint32_t motorSpeedRPM)
+{
+    uint32_t motorTus;
+
+    motorTus = (60000000) / (STEPS * motorSpeedRPM);
+
+    return motorTus;
+}
+
+uint32_t intervalms = getMotorTus(100);
 
 /*
  * Motor pulse is a simply a 50% duty cycle square wave i.e.

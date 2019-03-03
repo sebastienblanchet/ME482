@@ -76,6 +76,18 @@ HELPER FUNCTIONS
 
 **************************************************************************************************/
 
+/* Get actual current sensor value */
+float getIsens()
+{
+    // Map analog counts to voltage
+    float voltIsens = map(analogRead(ISENS), 0, MAXCOUNT, 0, VREF);
+
+    // Calculate measured current
+    float current = (ISENSK * voltIsens) - ISENSOFF;
+
+    return current;
+}
+
 uint32_t getMotorTus(uint32_t motorSpeedRPM)
 {
     uint32_t motorTus;

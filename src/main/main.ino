@@ -75,7 +75,7 @@ float getIsens()
     float voltIsens = map(analogRead(ISENS), 0, MAXCOUNT, 0, VREF);
 
     // Calculate measured current
-    float current = (ISENSK * voltIsens) + ISENSOFF;
+    float current = (ISENSK * voltIsens) - ISENSOFF;
 
     return current;
 }
@@ -133,7 +133,7 @@ void pinPulse(int pinNum, int delayMs)
     delay(delayMs);
 }
 
-
+/* Convert motor speed in RPM to pulse period in micro sec */
 uint32_t getMotorTus(uint32_t motorSpeedRPM)
 {
     uint32_t motorTus;
@@ -277,7 +277,7 @@ void buzzFlash(uint32_t buzzFlashTms)
         // TODO: specify time and pulse rate
         // Pulse at 5 Hz
         tone(BUZZ, 500);
-        // Pulse LED at X ms
+        // Pulse LED at 500 ms
         pinPulse(LEDPIN, 500);
 
         // Update elapsed time
@@ -313,22 +313,23 @@ void setup()
     digitalWrite(LEDPIN, LOW);
 
     // Set up serial port for debug
+    // TODO: remove serial comm, will slow down control
     Serial.begin(9600);
 }
-
-// Calibrations values
-const uint32_t windSpeedRPM = 100;   // Motor speed
-const uint32_t ImaxA = 3.0;          // Max current (i.e. represents stall)
-const float TRefC = 120.0;           // Reference platen temp
-const float THystC = 5.0;            // Hysteresis band
-const uint32_t heatTms = 3600000;    // Time to heat up substance in ms
-const uint32_t buzzFlashTms = 10000; // Time period for buzz and flash
 
 /* Main Routine */
 void loop()
 {
+    // Calibrations values
+    const uint32_t windSpeedRPM = 100;   // Motor speed
+    const uint32_t ImaxA = 3.0;          // Max current (i.e. represents stall)
+    const float TRefC = 120.0;           // Reference platen temp
+    const float THystC = 5.0;            // Hysteresis band
+    const uint32_t heatTms = 3600000;    // Time to heat up substance in ms
+    const uint32_t buzzFlashTms = 10000; // Time period for buzz and flash
+
     // Check if user has decided to start
-    if ( digitalRead(STARTSW) == HIGH )
+    if ( digitalRead(STARTSW) == LOW )
     {
         // 1. Keep LEDPIN high to notify user
         digitalWrite(LEDPIN, HIGH);
@@ -355,9 +356,11 @@ void loop()
         // 8. Turn LEDPIN off to notify end of routine
         digitalWrite(LEDPIN, LOW);
     }
-
-    // Notify of waiting
-    Serial.println("*********** WAITING ***********");
+    else
+    {
+        // Notify of waiting
+        Serial.println("*********** WAITING ***********");
+    }
 }
 
 
@@ -368,7 +371,7 @@ void swISR()
     digitalWrite(KHEATERS, LOW);
 
     // Turn off motor
-    digitalWrite(STEPENABLE, LOW);
+    digitalWrite(STEPENABLE, HIGH);
     digitalWrite(STEPPULSE, LOW);
 
     // Turn on fans

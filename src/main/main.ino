@@ -29,6 +29,9 @@
 
 
 /*************************************************************************************************
+
+PREPROCESSOR 
+
 **************************************************************************************************/
 
 /* Hardware specifics */
@@ -59,6 +62,9 @@
 
 
 /*************************************************************************************************
+
+GLOBALS
+
 **************************************************************************************************/
 
 /* Global variables */
@@ -66,10 +72,14 @@
 
 
 /*************************************************************************************************
+
+HELPER FUNCTIONS
+
 **************************************************************************************************/
 
 /* Get actual current sensor value */
-float getIsens()
+// TODO: validate getIsensA
+float getIsensA()
 {
     // Map analog counts to voltage
     float voltIsens = map(analogRead(ISENS), 0, MAXCOUNT, 0, VREF);
@@ -82,6 +92,7 @@ float getIsens()
 
 
 /* Get actual temperature reading */
+// TODO: validate getTempC
 float getTempC(uint32_t countIn)
 {
     // Convert counts to resistance
@@ -103,11 +114,12 @@ float getTempC(uint32_t countIn)
 
 
 /* Helper function to read avg temp count */
-float avgTemp()
+// TODO: validate avgTempC
+float avgTempC()
 {
     // Variable declarations
     uint32_t avgCounts;
-    float avgTemp;
+    float avgTempC;
 
     // Read analog lines and average readings
     avgCounts += analogRead(THERM0);
@@ -115,9 +127,9 @@ float avgTemp()
     avgCounts /= 2;
 
     // Calculate temperature from Steinhart
-    avgTemp = getTempC(avgCounts);
+    avgTempC = getTempC(avgCounts);
 
-    return avgTemp;
+    return avgTempC;
 }
 
 
@@ -145,6 +157,9 @@ uint32_t getMotorTus(uint32_t motorSpeedRPM)
 
 
 /*************************************************************************************************
+
+SUBROUTINES
+
 **************************************************************************************************/
 
 /* Wind the motor to stall */
@@ -165,7 +180,9 @@ void windMotor(uint32_t windSpeedRPM, uint32_t ImaxA)
     uint32_t windTus = getMotorTus(windSpeedRPM);
 
     // Spin motor to stall
-    while ( getIsens() <=  ImaxA )
+    // TODO: confirm that this works, BW will likely be too high (noise)
+    // TODO: confirm constant speed, may require some derating as torque increases
+    while ( getIsensA() <=  ImaxA )
     {
         pulse = !pulse;
         digitalWrite(STEPPULSE, pulse);
@@ -190,7 +207,7 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTms)
     uint32_t elapsed = tEnd - tStart;
 
     // Define average temp
-    float TAvgC = avgTemp();
+    float TAvgC = avgTempC();
 
     // Turn on the heaters to begin warming up
     digitalWrite(KHEATERS, HIGH);
@@ -199,7 +216,7 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTms)
     while ( !( (TAvgC >= TminC) && ( TAvgC <= TmaxC) ) )
     {
         // Update the current temp
-        TAvgC = avgTemp();
+        TAvgC = avgTempC();
     }
 
     // Turn the heaters off
@@ -209,7 +226,7 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTms)
     while ( elapsed <= heatTms )
     {
         // Get current temp
-        TAvgC = avgTemp();
+        TAvgC = avgTempC();
 
         // Hysteresis control
         if ( TAvgC > TmaxC )
@@ -251,7 +268,8 @@ void unwindMotor(uint32_t windSpeedRPM)
     uint32_t windTus = getMotorTus(windSpeedRPM);
 
     // Spin motor to until limit switch is depressed
-    while ( !digitalRead(LIMITSW) )
+    // Recall, switch uses pull up resistor LOW == depressed
+    while ( digitalRead(LIMITSW) )
     {
         pulse = !pulse;
         digitalWrite(STEPPULSE, pulse);
@@ -274,9 +292,9 @@ void buzzFlash(uint32_t buzzFlashTms)
     // buzz and flash for specified time
     while ( elapsed <= buzzFlashTms )
     {
-        // TODO: specify time and pulse rate
-        // Pulse at 5 Hz
+        // Buzz at 500 Hz
         tone(BUZZ, 500);
+
         // Pulse LED at 500 ms
         pinPulse(LEDPIN, 500);
 
@@ -290,6 +308,9 @@ void buzzFlash(uint32_t buzzFlashTms)
 
 
 /*************************************************************************************************
+
+MAIN ROUTINE
+
 **************************************************************************************************/
 
 /* Setup the Arduino hardware */
@@ -314,7 +335,7 @@ void setup()
 
     // Set up serial port for debug
     // TODO: remove serial comm, will slow down control
-    Serial.begin(9600);
+    Serial.begin(9600); 
 }
 
 /* Main Routine */
@@ -332,25 +353,31 @@ void loop()
     if ( digitalRead(STARTSW) == LOW )
     {
         // 1. Keep LEDPIN high to notify user
+        Serial.println("*********** STARTED      ***********");
         digitalWrite(LEDPIN, HIGH);
-        Serial.println("*********** STARTED ***********");
 
         // 2. Wind the motor to stall
+        Serial.println("*********** WIND MOTOR   ***********");
         windMotor(windSpeedRPM, ImaxA);
 
         // 3. Heat up the substance for heatTms
+        Serial.println("*********** HEATING      ***********");
         heatSubstance(TRefC, THystC, heatTms);
 
         // 4. Turn on fan
+        Serial.println("*********** FAN          ***********");
         digitalWrite(KFAN, HIGH);
 
         // 5. Unwind the motor to start position
+        Serial.println("*********** UNWIND MOTOR ***********");
         unwindMotor(windSpeedRPM);
 
         // 6. Notify user that program has finished
+        Serial.println("*********** BUZZ FLASH   ***********");
         buzzFlash(buzzFlashTms);
 
         // 7. Turn fan off
+        Serial.println("*********** END          ***********");
         digitalWrite(KFAN, LOW);
 
         // 8. Turn LEDPIN off to notify end of routine
@@ -359,12 +386,13 @@ void loop()
     else
     {
         // Notify of waiting
-        Serial.println("*********** WAITING ***********");
+        Serial.println("*********** WAITING      ***********");
     }
 }
 
 
 /* SW interrupt, occurs when HWINT goes low */
+// TODO: confirm swISR
 void swISR()
 {
     // Turn off heaters

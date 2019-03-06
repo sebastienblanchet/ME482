@@ -3,6 +3,7 @@ function dataLog(a, port, fxn, params, test)
 
     % Generate timestamp
     timeStamp = datestr(now,'dd_mm_yy_HHMMSS');
+    params.mins = minutes(params.mins);
 
     %% Acquire and display live data
     figure(1)
@@ -12,57 +13,60 @@ function dataLog(a, port, fxn, params, test)
     h = animatedline;
     ax = gca;
     ax.YGrid = 'on';
-    ax.YLim = [params.minval params.maxval];
-    title(strcat('Data ', timeStamp) ,'Interpreter','latex');
-    xlabel('Time','Interpreter','latex');
+    ylim([params.minval params.maxval])
+    title(strcat('Data', {' '}, timeStamp) ,'Interpreter','none');
+    xlabel('Time $t$ [s]','Interpreter','latex');
     ylabel(params.id,'Interpreter','latex');
 
-    % Define stop condition
-    stop = false;
+    % Init
+    dataPlot = [];
 
+    % Define stop condition
     startTime = datetime('now');
+    t =  datetime('now') - startTime;
 
     % Real time data log
-    while ~stop
+    % tic, toc
+    while t < params.mins
 
         % Read current voltage value   
         voltage = readVoltage(a, port);
 
         % Transform voltage based on passed in function
-        data = @fxn(voltage, params)
+        data = fxn(voltage, params)
         dataPlot = [dataPlot, data];
 
         % Get current time
         t =  datetime('now') - startTime;
         
         % Add points to animation
-        addpoints(h, datenum(t),dataPlot)
+        addpoints(h, datenum(t), data)
 
         % Update axes
-        ax.XLim = datenum([t-startTime t]);
+        % ax.XLim = datenum([t-startTime t]);
         datetick('x','keeplimits')
         drawnow
-
-        % Check stop condition
-        stop = readDigitalPin(a,'D12');
 
     end
 
     % Create plot for export
     figure(2)
     hold on
-    plot(t, dataPlot)
-    title(strcat('Data ', timeStamp) ,'Interpreter','latex');
-    xlabel('Time','Interpreter','latex');
+    tplot = linspace(0, seconds(t), numel(dataPlot));
+    plot(tplot, dataPlot)
+    xlim([0 seconds(t)])
+    ylim([params.minval params.maxval])
+    title(strcat('Data', {' '}, timeStamp) ,'Interpreter','none');
+    xlabel('Time $t$ [s]','Interpreter','latex');
     ylabel(params.id,'Interpreter','latex');
     grid on;
 
     % Save plot
-    plotstr = strcat('plots\test_', timeStamp);   
+    plotstr = strcat('plots/test_', timeStamp);   
     plotstr = char(plotstr);
     print(2,'-djpeg',plotstr);
 
     % Save .mat data
-    save(strcat('test_', timeStamp, '.mat'), 't' , 'dataPlot');
+    save(strcat('data/test_', timeStamp, '.mat'), 'tplot' , 'dataPlot');
 
 end

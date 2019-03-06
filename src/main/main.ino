@@ -30,35 +30,38 @@
 
 /*************************************************************************************************
 
-PREPROCESSOR 
+PREPROCESSOR
 
 **************************************************************************************************/
 
 /* Hardware specifics */
-#define MAXCOUNT 1023    // Max ADC counts
-#define VREF     5       // Arduino reference voltage
-#define RNOM     110000  // Thermistor resistance at 25 deg C
-#define BCOEF    3950    // Thermistor B value for Steinhart equation
-#define RSERIES  10000   // Pull up series resistor for thermistor sense
-#define ISENSK   10      // Current sensor gain (i.e 1 V / 100mV/A)
-#define ISENSOFF 25      // Current sensor offset (i.e 2.5 V / 100 mV/A)
-#define TNOM     25      // Nominal temperature room temp 25 def C
-#define STEPS    200     // Number of steps per rev
+#define MAXCOUNT     1023    // Max ADC counts
+#define VREF         5       // Arduino reference voltage
+#define RNOM         110000  // Thermistor resistance at 25 deg C
+#define BCOEF        3950    // Thermistor B value for Steinhart equation
+#define RSERIES      10000   // Pull up series resistor for thermistor sense
+#define ISENSK       10      // Current sensor gain (i.e 1 V / 100mV/A)
+#define ISENSOFF     25      // Current sensor offset (i.e 2.5 V / 100 mV/A)
+#define TNOM         25      // Nominal temperature room temp 25 def C
+#define STEPS        200     // Number of steps per rev
+#define FWD          LOW     // Motor FWD direction TODO: confirm FWD DIR
+#define BWD          HIGH    // Motor BWD direction TODO: confirm BWD DIR
 
-/* Pinout for hardware */
-#define HWINT        2   // hardware interrupt
-#define KHEATERS     4   // heaters relay pin
-#define BUZZ         5   // buzzer PWM line
-#define LEDPIN       6   // controls LED in UI
-#define KFAN         7   // controls relay switch for fan
-#define STARTSW      8   // takes user input 
-#define STEPENABLE   9   // enable the stepper motor
-#define STEPDIR      10  // enable CW or CCW motor dir
-#define STEPPULSE    11  // PWM line for motor
-#define LIMITSW      12  // Limit switch for motor return position 
-#define THERM0       A0  // thermistor 1 reading
-#define THERM1       A1  // thermistor 2 reading
-#define ISENS        A2  // motor current reading
+/* Pinout based on schematic */
+#define HWINT        2       // hardware interrupt (LOW == GOTO ISR)
+#define KHEATERS     4       // heaters relay pin (HIGH == ON)
+#define BUZZ         5       // buzzer PWM line (HIGH == ON)
+#define LEDPIN       6       // controls LED in UI (HIGH == ON)
+#define KFAN         7       // controls relay switch for fan (HIGH == ON)
+#define STARTSW      8       // takes user input (LOW == START)
+#define STEPENABLE   9       // enable the stepper motor (LOW == ON)
+#define STEPDIR      10      // motor spin direction (HIGH == FWD, LOW == BWD) TODO: confirm directions
+#define STEPPULSE    11      // PWM line for motor (HIGH == ON)
+#define LIMITSW      12      // Limit switch for platen closed position (LOW == ON)
+#define RETURNSW     13      // Limit switch for motor return position (LOW == ON)
+#define THERM0       A0      // thermistor 1 reading
+#define THERM1       A1      // thermistor 2 reading
+#define ISENS        A2      // motor current reading
 
 
 /*************************************************************************************************
@@ -68,6 +71,7 @@ GLOBALS
 **************************************************************************************************/
 
 /* Global variables */
+// TODO: check if bool or timing should be global
 // uint32_t tDelta;
 
 
@@ -129,6 +133,8 @@ float avgTempC()
     // Calculate temperature from Steinhart
     avgTempC = getTempC(avgCounts);
 
+    // TODO: check if filter is required for avgTempC()
+
     return avgTempC;
 }
 
@@ -182,6 +188,7 @@ void windMotor(uint32_t windSpeedRPM, uint32_t ImaxA)
     // Spin motor to stall
     // TODO: confirm that this works, BW will likely be too high (noise)
     // TODO: confirm constant speed, may require some derating as torque increases
+    // TODO: remove getIsensA() replace w/ sw
     while ( getIsensA() <=  ImaxA )
     {
         pulse = !pulse;
@@ -281,6 +288,36 @@ void unwindMotor(uint32_t windSpeedRPM)
 }
 
 
+
+/* Generic motor function */
+void spinMotor(uint32_t windSpeedRPM, bool direction, uint32_t limitSW)
+{
+    // Write enable
+    digitalWrite(STEPENABLE, LOW);
+
+    // Set motor direction
+    digitalWrite(STEPDIR, direction);
+
+    // Set pulse low
+    digitalWrite(STEPPULSE, LOW);
+    bool pulse = LOW;
+
+    // Get motor period from speed
+    uint32_t windTus = getMotorTus(windSpeedRPM);
+
+    // Spin motor to until specified limit switch is depressed
+    while ( digitalRead(limitSW) )
+    {
+        pulse = !pulse;
+        digitalWrite(STEPPULSE, pulse);
+        delayMicroseconds(windTus);
+    }
+
+    // Turn off motor
+    digitalWrite(STEPENABLE, HIGH);
+}
+
+
 /* Flash LED and BUZZ*/
 void buzzFlash(uint32_t buzzFlashTms)
 {
@@ -292,10 +329,10 @@ void buzzFlash(uint32_t buzzFlashTms)
     // buzz and flash for specified time
     while ( elapsed <= buzzFlashTms )
     {
-        // Buzz at 500 Hz
+        // Buzz at specific frequency
         tone(BUZZ, 500);
 
-        // Pulse LED at 500 ms
+        // Flash LED
         pinPulse(LEDPIN, 500);
 
         // Update elapsed time
@@ -328,26 +365,27 @@ void setup()
     pinMode(STEPPULSE,  OUTPUT);
 
     // Attach interrupt to HWINT
-    attachInterrupt(digitalPinToInterrupt(HWINT), swISR, LOW);
+    attachInterrupt(digitalPinToInterrupt(HWINT), swISR, HIGH);
 
     // Set LED to low
     digitalWrite(LEDPIN, LOW);
 
     // Set up serial port for debug
     // TODO: remove serial comm, will slow down control
-    Serial.begin(9600); 
+    Serial.begin(9600);
 }
 
 /* Main Routine */
 void loop()
 {
     // Calibrations values
-    const uint32_t windSpeedRPM = 100;   // Motor speed
-    const uint32_t ImaxA = 3.0;          // Max current (i.e. represents stall)
-    const float TRefC = 120.0;           // Reference platen temp
-    const float THystC = 5.0;            // Hysteresis band
-    const uint32_t heatTms = 3600000;    // Time to heat up substance in ms
-    const uint32_t buzzFlashTms = 10000; // Time period for buzz and flash
+    // TODO: confirm cal locations
+    const uint32_t windSpeedRPM = 100;     // Motor speed
+    const uint32_t ImaxA        = 3.0;     // Max current (i.e. represents stall)
+    const float    TRefC        = 120.0;   // Reference platen temp
+    const float    THystC       = 5.0;     // Hysteresis band
+    const uint32_t heatTms      = 3600000; // Time to heat up substance in ms
+    const uint32_t buzzFlashTms = 10000;   // Time period for buzz and flash
 
     // Check if user has decided to start
     if ( digitalRead(STARTSW) == LOW )
@@ -359,6 +397,7 @@ void loop()
         // 2. Wind the motor to stall
         Serial.println("*********** WIND MOTOR   ***********");
         windMotor(windSpeedRPM, ImaxA);
+        // TODO: spinMotor(windSpeedRPM, FWD, LIMITSW);
 
         // 3. Heat up the substance for heatTms
         Serial.println("*********** HEATING      ***********");
@@ -371,6 +410,7 @@ void loop()
         // 5. Unwind the motor to start position
         Serial.println("*********** UNWIND MOTOR ***********");
         unwindMotor(windSpeedRPM);
+        // TODO: spinMotor(windSpeedRPM, BWD, RETURNSW);
 
         // 6. Notify user that program has finished
         Serial.println("*********** BUZZ FLASH   ***********");
@@ -391,7 +431,7 @@ void loop()
 }
 
 
-/* SW interrupt, occurs when HWINT goes low */
+/* SW interrupt, occurs when HWINT goes HIGH (i.e. SW open) */
 // TODO: confirm swISR
 void swISR()
 {
@@ -403,9 +443,11 @@ void swISR()
     digitalWrite(STEPPULSE, LOW);
 
     // Turn on fans
-    digitalWrite(KFAN, LOW);
+    digitalWrite(KFAN, HIGH);
 
     // TODO: figure out what it should do next
-    // Buzz to notify reboot?
+    // Notify user SW interrupt has occurred
+    tone(BUZZ, 500);
+    digitalWrite(LEDPIN, HIGH);
 }
 

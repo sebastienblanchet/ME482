@@ -21,6 +21,8 @@ params.Bcoeff = 3950;
 params.R0 = 100e3;
 params.Vcc = 5;
 params.name = 'nosubstance';
+params.IsensGainApV = 10;
+params.IsensOffsetA = 25;
 
 % Caculated constants
 params.sec = 60 * params.mins;

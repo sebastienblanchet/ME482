@@ -1,5 +1,5 @@
 %% Plot realtime data and export results to 
-function dataLog(a, port, fxn, params, test)
+function dataLog2(fxn, params)
 
     % Generate timestamp
     timeStamp = datestr(now,'dd_mm_yy_HHMMSS');
@@ -15,25 +15,26 @@ function dataLog(a, port, fxn, params, test)
     ax.YGrid = 'on';
     ylim([params.minval params.maxval])
     title(strcat('Data', {' '}, timeStamp) ,'Interpreter','none');
-    xlabel('Time $t$ [s]','Interpreter','latex');
-    ylabel(params.id,'Interpreter','latex');
-
-    % Init
-    dataPlot = [];
+    xlabel('Time','Interpreter','latex');
+    ylabel((params.id),'Interpreter','latex');
 
     % Define stop condition
+    stop = false;
+
+    interv = params.sec * params.fhz;
+    dataPlot = [];
+    
     startTime = datetime('now');
     t =  datetime('now') - startTime;
-
+    
     % Real time data log
-    % tic, toc
     while t < params.mins
 
         % Read current voltage value   
-        voltage = readVoltage(a, port);
+        voltage = 2.75 + rand / 100;
 
         % Transform voltage based on passed in function
-        data = fxn(voltage, params)
+        data = fxn(voltage, params);
         dataPlot = [dataPlot, data];
 
         % Get current time
@@ -43,7 +44,7 @@ function dataLog(a, port, fxn, params, test)
         addpoints(h, datenum(t), data)
 
         % Update axes
-        % ax.XLim = datenum([t-startTime t]);
+        % ax.XLim = datenum([(t-seconds(15)) t]);
         datetick('x','keeplimits')
         drawnow
 

@@ -83,7 +83,7 @@ HELPER FUNCTIONS
 
 /* Get actual current sensor value */
 // TODO: validate getIsensA
-float getIsensA()
+float getIsensA(void)
 {
     // Map analog counts to voltage
     float voltIsens = map(analogRead(ISENS), 0, MAXCOUNT, 0, VREF);
@@ -119,7 +119,7 @@ float getTempC(uint32_t countIn)
 
 /* Helper function to read avg temp count */
 // TODO: validate avgTempC
-float avgTempC()
+float avgTempC(void)
 {
     // Variable declarations
     uint32_t avgCounts;
@@ -161,6 +161,12 @@ uint32_t getMotorTus(uint32_t motorSpeedRPM)
     return motorTus;
 }
 
+/* Convert minutes to milliseconds */
+uint32_t getMsFromMins(uint32_t minutes)
+{
+    return 60000 * minutes;
+}
+
 
 /*************************************************************************************************
 
@@ -169,7 +175,7 @@ SUBROUTINES
 **************************************************************************************************/
 
 /* Wind the motor to stall */
-void windMotor(uint32_t windSpeedRPM, uint32_t ImaxA)
+void windMotor(uint32_t windSpeedRPM, float ImaxA)
 {
     // Write enable
     digitalWrite(STEPENABLE, LOW);
@@ -189,6 +195,7 @@ void windMotor(uint32_t windSpeedRPM, uint32_t ImaxA)
     // TODO: confirm that this works, BW will likely be too high (noise)
     // TODO: confirm constant speed, may require some derating as torque increases
     // TODO: remove getIsensA() replace w/ sw
+    // TODO: account for decarboxylation
     while ( getIsensA() <=  ImaxA )
     {
         pulse = !pulse;
@@ -202,7 +209,7 @@ void windMotor(uint32_t windSpeedRPM, uint32_t ImaxA)
 
 
 /* Heat up the substance */
-void heatSubstance(float TRefC, float THystC, uint32_t heatTms)
+void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
 {
     // TODO: finish function which converts temp to counts
     const float TmaxC  = TRefC + THystC; // Hysteresis max
@@ -212,6 +219,7 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTms)
     uint32_t tStart = millis();
     uint32_t tEnd = tStart;
     uint32_t elapsed = tEnd - tStart;
+    uint32_t heatTms = getMsFromMins(heatTmins);
 
     // Define average temp
     float TAvgC = avgTempC();
@@ -224,13 +232,14 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTms)
     {
         // Update the current temp
         TAvgC = avgTempC();
+        delay(1000);
     }
 
     // Turn the heaters off
     digitalWrite(KHEATERS, LOW);
 
     // Heat up substance for an hour with hysteresis control, run at 1Hz
-    while ( elapsed <= heatTms )
+    while ( elapsed <= heatTmins )
     {
         // Get current temp
         TAvgC = avgTempC();
@@ -288,7 +297,6 @@ void unwindMotor(uint32_t windSpeedRPM)
 }
 
 
-
 /* Generic motor function */
 void spinMotor(uint32_t windSpeedRPM, bool direction, uint32_t limitSW)
 {
@@ -319,12 +327,13 @@ void spinMotor(uint32_t windSpeedRPM, bool direction, uint32_t limitSW)
 
 
 /* Flash LED and BUZZ*/
-void buzzFlash(uint32_t buzzFlashTms)
+void buzzFlash(uint32_t buzzFlashTmins)
 {
     // Define timing variables
     uint32_t tStart = millis();
     uint32_t tEnd = tStart;
     uint32_t elapsed = tEnd - tStart;
+    uint32_t buzzFlashTms = getMsFromMins(buzzFlashTmins);
 
     // buzz and flash for specified time
     while ( elapsed <= buzzFlashTms )
@@ -381,11 +390,11 @@ void loop()
     // Calibrations values
     // TODO: confirm cal locations
     const uint32_t windSpeedRPM = 100;     // Motor speed
-    const uint32_t ImaxA        = 3.0;     // Max current (i.e. represents stall)
+    const float    ImaxA        = 3.0;     // Max current (i.e. represents stall)
     const float    TRefC        = 120.0;   // Reference platen temp
     const float    THystC       = 5.0;     // Hysteresis band
-    const uint32_t heatTms      = 3600000; // Time to heat up substance in ms
-    const uint32_t buzzFlashTms = 10000;   // Time period for buzz and flash
+    const uint32_t heatTmins    = 5;       // Time to heat up substance in minutes
+    const uint32_t buzzFlashTmins = 10000;   // Time period for buzz and flash
 
     // Check if user has decided to start
     if ( digitalRead(STARTSW) == LOW )
@@ -396,12 +405,23 @@ void loop()
 
         // 2. Wind the motor to stall
         Serial.println("*********** WIND MOTOR   ***********");
-        windMotor(windSpeedRPM, ImaxA);
+        windMotor(windSpeedRPM, ImaxA - 1);
         // TODO: spinMotor(windSpeedRPM, FWD, LIMITSW);
+        
+        // TODO: Decarboxylation work on
+        Serial.print("Decarboxylation ? (1/0): ");
+        bool decarboxBool = Serial.read();
 
-        // 3. Heat up the substance for heatTms
+        if (decarboxBool)
+        {
+            heatSubstance(TRefC + 20, THystC, heatTmins / 5);
+        }
+
+        windMotor(windSpeedRPM, ImaxA);
+
+        // 3. Heat up the substance for heatTmins
         Serial.println("*********** HEATING      ***********");
-        heatSubstance(TRefC, THystC, heatTms);
+        heatSubstance(TRefC, THystC, heatTmins);
 
         // 4. Turn on fan
         Serial.println("*********** FAN          ***********");
@@ -414,7 +434,7 @@ void loop()
 
         // 6. Notify user that program has finished
         Serial.println("*********** BUZZ FLASH   ***********");
-        buzzFlash(buzzFlashTms);
+        buzzFlash(buzzFlashTmins);
 
         // 7. Turn fan off
         Serial.println("*********** END          ***********");

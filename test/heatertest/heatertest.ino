@@ -106,16 +106,15 @@ float avgTempC()
     // Read analog lines and average readings
     uint32_t count1 = analogRead(THERM0);
     uint32_t count2 = analogRead(THERM1);
+    
     Serial.println(getTempC(count1));
     Serial.println(getTempC(count2));
-    avgCounts += count1;
-    avgCounts += count2;
-    avgCounts /= 2;
 
-    // Calculate temperature from Steinhart
-    avgTempC = getTempC(avgCounts);
+    avgTempC += getTempC(count1);
+    avgTempC += getTempC(count2);
+    avgTempC /= 2;
 
-    // TODO: check if filter is required for avgTempC()
+    Serial.println(TAvgC);
 
     return avgTempC;
 }
@@ -141,23 +140,21 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
     const float TminC  = TRefC - THystC; // Hysteresis min
 
     // Define average temp
-    float TAvgC = avgTempC();
-
     Serial.print("Initial Temperature [C] ");
-    Serial.println(TAvgC);
+    float TAvgC = avgTempC();
 
     // Turn on the heaters to begin warming up
     digitalWrite(KHEATERS, LOW);
     Serial.println("HEATERS ON");
 
     // Wait for platen to heat up (i.e. not in hysteresis)
-    while ( !( (TAvgC >= TminC) && ( TAvgC <= TmaxC) ) )
+    Serial.println(TmaxC);
+
+    while ( (TAvgC < TmaxC) )
     {
         // Update the current temp
-        TAvgC = avgTempC();
         Serial.println("Waiting for Platen to heat");
-        Serial.print("Temperature [C] ");
-        Serial.println(TAvgC);
+        TAvgC = avgTempC();
         delay(1000);
     }
 
@@ -175,14 +172,11 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
     uint32_t heatTms = convertMsToMin(heatTmins);
 
     // Heat up substance for an hour with hysteresis control, run at 1Hz
-    while ( elapsed <= heatTmins )
+    while ( elapsed <= heatTms )
     {
         // Get current temp
-        TAvgC = avgTempC();
-
         Serial.println("Main heating loop");
-        Serial.print("Temperature [C] ");
-        Serial.println(TAvgC);        Serial.println(TAvgC);
+        TAvgC = avgTempC();
 
         // Hysteresis control
         if ( TAvgC > TmaxC )
@@ -207,6 +201,10 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
         Serial.print("Elapsed [s]: ");
         Serial.println(elapsed / 1000);
     }
+
+    // Turn off the heaters
+    digitalWrite(KHEATERS, HIGH);
+    digitalWrite(KFAN, LOW);
 
 }
 
@@ -247,8 +245,8 @@ void setup()
 void loop()
 {
     // Calibrations values
-    const float    TRefC        = 120.0;   // Reference platen temp
-    const float    THystC       = 5.0;     // Hysteresis band
+    const float    TRefC        = 110.0;   // Reference platen temp
+    const float    THystC       = 2.0;     // Hysteresis band
     const uint32_t heatTmins    = 2;       // Time to heat up substance in minutes
 
         // Check if user has decided to start

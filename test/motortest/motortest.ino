@@ -40,7 +40,7 @@
 #define ISENSK   10      // Current sensor gain (i.e 1 V / 100mV/A)
 #define ISENSOFF 25      // Current sensor offset (i.e 2.5 V / 100 mV/A)
 #define TNOM     25      // Nominal temperature room temp 25 def C
-#define STEPS    800     // Number of steps per rev
+#define STEPS    400     // Number of steps per rev
 
 /* Pinout for hardware */
 #define HWINT        2   // hardware interrupt
@@ -68,7 +68,7 @@ GLOBALS
 boolean pulse = LOW;
 const int FWD = 578;
 const int BWD = 448;
-const int speedMAX = 300;
+const int speedMAX = 200;
 
 /*************************************************************************************************
 
@@ -76,11 +76,37 @@ HELPER FUNCTIONS
 
 **************************************************************************************************/
 
+/* Get actual current sensor value */
+// TODO: validate getIsensA
+float getIsensA(uint32_t maxcount)
+{
+    static uint32_t counter = 0;
+    static float current = 0;
+
+    if ( counter == 0 )
+    {
+        // Map analog counts to voltage
+        float voltIsens = map(analogRead(ISENS), 0, MAXCOUNT, 0, VREF);
+        // Calculate measured current
+        current = (ISENSK * voltIsens) - ISENSOFF;
+        // Reset counter to MAX
+        counter = maxcount;
+    }
+    else
+    {
+        // Decrement counter
+        counter--;
+    }
+
+    return current;
+}
+
+
 uint32_t getMotorTus(uint32_t motorSpeedRPM)
 {
     uint32_t motorTus;
 
-    motorTus = (60000000) / (STEPS * motorSpeedRPM);
+    motorTus = (30000000) / (STEPS * motorSpeedRPM);
 
     return motorTus;
 }
@@ -122,9 +148,6 @@ void setup()
 void loop()
 {
     int speedCounts = analogRead(A5);
-
-    // float speedPCT = map(speedCounts, 0, 1023, -1, 1) 
-    // int speedRPM = (abs(speedPCT)) * speedMAX;
 
     if ( speedCounts > FWD )
     {

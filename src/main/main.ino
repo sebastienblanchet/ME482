@@ -96,44 +96,33 @@ float getIsensA(void)
 
 
 /* Get actual temperature reading */
-// TODO: validate getTempC
 float getTempC(uint32_t countIn)
 {
     // Convert counts to resistance
-    float Rin = RSERIES / ((1023.0 / ( (float) countIn) - 1.0));
-
-    // TODO: clean up equation
-    // Tout = Rin / RNOM;     // (R/Ro)
-    // Tout = log(Tout);                  // ln(R/Ro)
-    // Tout /= BCOEF;                   // 1/B * ln(R/Ro)
-    // Tout += 1.0 / (TNOM + 273.15); // + (1/To)
-    // Tout = 1.0 / Tout;                 // Invert
-    // Tout -= 273.15;                         // convert to C
+    float Rin = RSERIES / (1023.0/ countIn - 1.0);
 
     // Steinhart equation approximation
-    float Tout =  (1.0 / ((1.0 / BCOEF) * log(Rin / RNOM)) + (1.0 / (TNOM + 273.15))) - 273.15;
+    float ToutC =  (1.0 / (((1.0 / BCOEF) * log(Rin / RNOM)) + (1.0 / (TNOM + 273.15)))) - 273.15;
 
-    return  Tout;
+    return  ToutC;
 }
 
 
+
 /* Helper function to read avg temp count */
-// TODO: validate avgTempC
 float avgTempC(void)
 {
     // Variable declarations
-    uint32_t avgCounts;
-    float avgTempC;
+    float avgTempC = 0;
 
     // Read analog lines and average readings
-    avgCounts += analogRead(THERM0);
-    avgCounts += analogRead(THERM1);
-    avgCounts /= 2;
-
-    // Calculate temperature from Steinhart
-    avgTempC = getTempC(avgCounts);
-
-    // TODO: check if filter is required for avgTempC()
+    uint32_t count1 = analogRead(THERM0);
+    uint32_t count2 = analogRead(THERM1);
+    Serial.println(getTempC(count1));
+    Serial.println(getTempC(count2));
+    avgTempC += getTempC(count1);
+    avgTempC += getTempC(count2);
+    avgTempC /= 2;
 
     return avgTempC;
 }
@@ -156,7 +145,8 @@ uint32_t getMotorTus(uint32_t motorSpeedRPM)
 {
     uint32_t motorTus;
 
-    motorTus = (60000000) / (STEPS * motorSpeedRPM);
+    // Divide by 2, recall duty cycle 50% 
+    motorTus = (30000000) / (STEPS * motorSpeedRPM);
 
     return motorTus;
 }
@@ -182,7 +172,7 @@ void windMotor(uint32_t windSpeedRPM, float ImaxA)
 
     // Set CW motor direction to close platens
     // TODO: confirm direction
-    digitalWrite(STEPDIR, HIGH);
+    digitalWrite(STEPDIR, FWD);
 
     // Set pulse low
     digitalWrite(STEPPULSE, LOW);
@@ -196,7 +186,7 @@ void windMotor(uint32_t windSpeedRPM, float ImaxA)
     // TODO: confirm constant speed, may require some derating as torque increases
     // TODO: remove getIsensA() replace w/ sw
     // TODO: account for decarboxylation
-    while ( getIsensA() <=  ImaxA )
+    while ( getIsensA() <  ImaxA )
     {
         pulse = !pulse;
         digitalWrite(STEPPULSE, pulse);
@@ -228,7 +218,7 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
     digitalWrite(KHEATERS, HIGH);
 
     // Wait for platen to heat up (i.e. not in hysteresis)
-    while ( !( (TAvgC >= TminC) && ( TAvgC <= TmaxC) ) )
+    while ( TAvgC < TmaxC )
     {
         // Update the current temp
         TAvgC = avgTempC();
@@ -236,10 +226,10 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
     }
 
     // Turn the heaters off
-    digitalWrite(KHEATERS, LOW);
+    digitalWrite(KHEATERS, HIGH);
 
     // Heat up substance for an hour with hysteresis control, run at 1Hz
-    while ( elapsed <= heatTmins )
+    while ( elapsed <= heatTms )
     {
         // Get current temp
         TAvgC = avgTempC();
@@ -248,12 +238,12 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
         if ( TAvgC > TmaxC )
         {
             // Turn the heaters off
-            digitalWrite(KHEATERS, LOW);
+            digitalWrite(KHEATERS, HIGH);
         }
         else if (TAvgC < TminC)
         {
             // Turn on the heaters
-            digitalWrite(KHEATERS, HIGH);
+            digitalWrite(KHEATERS, LOW);
         }
 
         // Run control slower to avoid noise issues
@@ -262,6 +252,9 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
         // Update elapsed time
         elapsed = millis() - tStart;
     }
+
+    // Turn off the heaters
+    digitalWrite(KHEATERS, HIGH);
 
 }
 
@@ -274,7 +267,7 @@ void unwindMotor(uint32_t windSpeedRPM)
 
     // Set CCW motor direction to open platen
     // TODO: confirm direction
-    digitalWrite(STEPDIR, LOW);
+    digitalWrite(STEPDIR, BWD);
 
     // Set pulse low
     digitalWrite(STEPPULSE, LOW);
@@ -376,8 +369,15 @@ void setup()
     // Attach interrupt to HWINT
     attachInterrupt(digitalPinToInterrupt(HWINT), swISR, HIGH);
 
-    // Set LED to low
-    digitalWrite(LEDPIN, LOW);
+    // Turn everything off 
+    digitalWrite(KHEATERS, HIGH);
+    digitalWrite(BUZZ, HIGH);
+    digitalWrite(LEDPIN, HIGH);
+    digitalWrite(KFAN, HIGH);
+    digitalWrite(STEPENABLE, HIGH);
+    digitalWrite(STEPDIR, HIGH);
+    digitalWrite(STEPPULSE, HIGH);
+    digitalWrite(LEDPIN, HIGH);
 
     // Set up serial port for debug
     // TODO: remove serial comm, will slow down control
@@ -389,35 +389,24 @@ void loop()
 {
     // Calibrations values
     // TODO: confirm cal locations
-    const uint32_t windSpeedRPM = 100;     // Motor speed
-    const float    ImaxA        = 3.0;     // Max current (i.e. represents stall)
-    const float    TRefC        = 120.0;   // Reference platen temp
-    const float    THystC       = 5.0;     // Hysteresis band
-    const uint32_t heatTmins    = 5;       // Time to heat up substance in minutes
-    const uint32_t buzzFlashTmins = 10000;   // Time period for buzz and flash
+    const uint32_t windSpeedRPM   = 100;   // Motor speed
+    const float    ImaxA          = 2.0;   // Max current (i.e. represents stall)
+    const float    TRefC          = 115.0; // Reference platen temp
+    const float    THystC         = 2.0;   // Hysteresis band
+    const uint32_t heatTmins      = 5;     // Time to heat up substance in minutes
+    const uint32_t buzzFlashTmins = 10;    // Time period for buzz and flash
 
     // Check if user has decided to start
     if ( digitalRead(STARTSW) == LOW )
     {
         // 1. Keep LEDPIN high to notify user
         Serial.println("*********** STARTED      ***********");
-        digitalWrite(LEDPIN, HIGH);
+        digitalWrite(LEDPIN, LOW);
 
         // 2. Wind the motor to stall
         Serial.println("*********** WIND MOTOR   ***********");
-        windMotor(windSpeedRPM, ImaxA - 1);
-        // TODO: spinMotor(windSpeedRPM, FWD, LIMITSW);
-        
-        // TODO: Decarboxylation work on
-        Serial.print("Decarboxylation ? (1/0): ");
-        bool decarboxBool = Serial.read();
-
-        if (decarboxBool)
-        {
-            heatSubstance(TRefC + 20, THystC, heatTmins / 5);
-        }
-
         windMotor(windSpeedRPM, ImaxA);
+        // TODO: spinMotor(windSpeedRPM, FWD, LIMITSW);
 
         // 3. Heat up the substance for heatTmins
         Serial.println("*********** HEATING      ***********");
@@ -425,7 +414,7 @@ void loop()
 
         // 4. Turn on fan
         Serial.println("*********** FAN          ***********");
-        digitalWrite(KFAN, HIGH);
+        digitalWrite(KFAN, LOW);
 
         // 5. Unwind the motor to start position
         Serial.println("*********** UNWIND MOTOR ***********");
@@ -438,10 +427,10 @@ void loop()
 
         // 7. Turn fan off
         Serial.println("*********** END          ***********");
-        digitalWrite(KFAN, LOW);
+        digitalWrite(KFAN, HIGH);
 
         // 8. Turn LEDPIN off to notify end of routine
-        digitalWrite(LEDPIN, LOW);
+        digitalWrite(LEDPIN, HIGH);
     }
     else
     {
@@ -456,18 +445,19 @@ void loop()
 void swISR()
 {
     // Turn off heaters
-    digitalWrite(KHEATERS, LOW);
+    digitalWrite(KHEATERS, HIGH);
 
     // Turn off motor
     digitalWrite(STEPENABLE, HIGH);
     digitalWrite(STEPPULSE, LOW);
 
     // Turn on fans
-    digitalWrite(KFAN, HIGH);
+    digitalWrite(KFAN, LOW);
 
     // TODO: figure out what it should do next
     // Notify user SW interrupt has occurred
     tone(BUZZ, 500);
-    digitalWrite(LEDPIN, HIGH);
+    digitalWrite(LEDPIN, LOW);
+    notone(BUZZ);
 }
 

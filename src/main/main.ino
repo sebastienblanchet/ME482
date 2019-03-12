@@ -28,11 +28,11 @@
  */
 
 
-/*************************************************************************************************
+/*********************************************************************************
 
 PREPROCESSOR
 
-**************************************************************************************************/
+*********************************************************************************/
 
 /* Hardware specifics */
 #define MAXCOUNT     1023    // Max ADC counts
@@ -64,22 +64,11 @@ PREPROCESSOR
 #define ISENS        A2      // motor current reading
 
 
-/*************************************************************************************************
-
-GLOBALS
-
-**************************************************************************************************/
-
-/* Global variables */
-// TODO: check if bool or timing should be global
-// uint32_t tDelta;
-
-
-/*************************************************************************************************
+/*********************************************************************************
 
 HELPER FUNCTIONS
 
-**************************************************************************************************/
+*********************************************************************************/
 
 /* Get actual current sensor value */
 // TODO: validate getIsensA
@@ -158,11 +147,11 @@ uint32_t getMsFromMins(uint32_t minutes)
 }
 
 
-/*************************************************************************************************
+/*********************************************************************************
 
 SUBROUTINES
 
-**************************************************************************************************/
+*********************************************************************************/
 
 /* Wind the motor to stall */
 void windMotor(uint32_t windSpeedRPM, float ImaxA)
@@ -205,12 +194,6 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
     const float TmaxC  = TRefC + THystC; // Hysteresis max
     const float TminC  = TRefC - THystC; // Hysteresis min
 
-    // Define timing variables
-    uint32_t tStart = millis();
-    uint32_t tEnd = tStart;
-    uint32_t elapsed = tEnd - tStart;
-    uint32_t heatTms = getMsFromMins(heatTmins);
-
     // Define average temp
     float TAvgC = avgTempC();
 
@@ -227,6 +210,12 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
 
     // Turn the heaters off
     digitalWrite(KHEATERS, HIGH);
+
+    // Define timing variables
+    uint32_t tStart = millis();
+    uint32_t tEnd = tStart;
+    uint32_t elapsed = tEnd - tStart;
+    uint32_t heatTms = getMsFromMins(heatTmins);
 
     // Heat up substance for an hour with hysteresis control, run at 1Hz
     while ( elapsed <= heatTms )
@@ -307,7 +296,7 @@ void spinMotor(uint32_t windSpeedRPM, bool direction, uint32_t limitSW)
     uint32_t windTus = getMotorTus(windSpeedRPM);
 
     // Spin motor to until specified limit switch is depressed
-    while ( digitalRead(limitSW) )
+    while ( digitalRead(limitSW) == HIGH )
     {
         pulse = !pulse;
         digitalWrite(STEPPULSE, pulse);
@@ -346,11 +335,11 @@ void buzzFlash(uint32_t buzzFlashTmins)
 }
 
 
-/*************************************************************************************************
+/*********************************************************************************
 
 MAIN ROUTINE
 
-**************************************************************************************************/
+*********************************************************************************/
 
 /* Setup the Arduino hardware */
 void setup()

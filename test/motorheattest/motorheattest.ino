@@ -43,7 +43,7 @@ PREPROCESSOR
 #define ISENSK       10      // Current sensor gain (i.e 1 V / 100mV/A)
 #define ISENSOFF     25      // Current sensor offset (i.e 2.5 V / 100 mV/A)
 #define TNOM         25      // Nominal temperature room temp 25 def C
-#define STEPS        1600     // Number of steps per rev
+#define STEPS        800     // Number of steps per rev
 #define FWD          LOW     // Motor FWD direction TODO: confirm FWD DIR
 #define BWD          HIGH    // Motor BWD direction TODO: confirm BWD DIR
 
@@ -130,7 +130,7 @@ uint32_t convertMsToMin(uint32_t minutes)
     return 60000 * minutes;
  }
 
-const int speedMAX = 200;
+const int speedMAX = 300;
 
 uint32_t getMotorTus(uint32_t motorSpeedRPM)
 {

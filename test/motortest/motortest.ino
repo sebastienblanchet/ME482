@@ -40,7 +40,7 @@
 #define ISENSK   10      // Current sensor gain (i.e 1 V / 100mV/A)
 #define ISENSOFF 25      // Current sensor offset (i.e 2.5 V / 100 mV/A)
 #define TNOM     25      // Nominal temperature room temp 25 def C
-#define STEPS    400     // Number of steps per rev
+#define STEPS    1600     // Number of steps per rev
 
 /* Pinout for hardware */
 #define HWINT        2   // hardware interrupt
@@ -68,7 +68,7 @@ GLOBALS
 boolean pulse = LOW;
 const int FWD = 578;
 const int BWD = 448;
-const int speedMAX = 200;
+const int speedMAX = 300;
 
 /*************************************************************************************************
 

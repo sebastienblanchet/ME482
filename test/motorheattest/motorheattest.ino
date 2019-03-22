@@ -231,6 +231,8 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
 
     // Turn off the heaters
     digitalWrite(KHEATERS, HIGH);
+
+    // Turn on FAN
     digitalWrite(KFAN, LOW);
 
 }
@@ -255,6 +257,7 @@ void setup()
     pinMode(STEPENABLE, OUTPUT);
     pinMode(STEPDIR,    OUTPUT);
     pinMode(STEPPULSE,  OUTPUT);
+    pinMode(LED_BUILTIN,OUTPUT);
 
     // Set LED to low
     digitalWrite(LEDPIN, LOW);
@@ -262,6 +265,7 @@ void setup()
     // Turn off heaters and fans
     digitalWrite(KHEATERS, HIGH);
     digitalWrite(KFAN, HIGH);
+    pinMode(LED_BUILTIN, LOW);
 
     // Set up serial port for debug
     // TODO: remove serial comm, will slow down control
@@ -272,45 +276,62 @@ void setup()
 void loop()
 {
     // Calibrations values
-    const float    TRefC        = 10.0;   // Reference platen temp
+    const float    TRefC        = 60.0;   // Reference platen temp
     const float    THystC       = 1.0;     // Hysteresis band
-    const uint32_t heatTmins    = 0;       // Time to heat up substance in minutes
+    const uint32_t heatTmins    = 1;       // Time to heat up substance in minutes
 
         // Check if user has decided to start
     if ( digitalRead(STARTSW) == LOW )
     {
+
+        uint32_t twaitS = 2000;
         // 3. Heat up the substance for heatTmins
-        Serial.println("*********** STARTING      ***********");
-        delay(1000);
+        Serial.println("\u001b[42m***********     AUTOMATIC      ***********\u001b[0m");
+        
+        delay(twaitS);
+
+        // Enable motor
+        digitalWrite(STEPENABLE, LOW);
+
+        if ( digitalRead(STARTSW) == HIGH )
+        {
+            digitalWrite(LED_BUILTIN, HIGH);
+        }
 
         digitalWrite(STEPDIR, FWD);
         
-        Serial.println("*********** MOTOR FWD      ***********");
+        Serial.println("\u001b[41m***********     WIND MOTOR     ***********\u001b[0m");
         while ( digitalRead(STARTSW) == HIGH )
         {
             motorPulse();
-        }        
+        }
         
-        Serial.println("*********** HEATING      ***********");
+        delay(twaitS);
+        
+        Serial.println("\u001b[41m***********     HEATING        ***********\u001b[0m");
         heatSubstance(TRefC, THystC, heatTmins);
 
-        Serial.println("*********** MOTOR BWD      ***********");
+        Serial.println("\u001b[46m***********     COOLING        ***********\u001b[0m");
+        delay(twaitS);
+        
+        Serial.println("\u001b[41m***********     UNWIND MOTOR   ***********\u001b[0m");
         digitalWrite(STEPDIR, BWD);
         while ( digitalRead(STARTSW) == HIGH )
         {
             motorPulse();
         }
 
-        delay(5000);
+        delay(twaitS);
 
+        Serial.println("\u001b[41m***********     END            ***********\u001b[0m");
+        // Turn everything off
         digitalWrite(KFAN, HIGH);
-        Serial.println("*********** FAN OFF      ***********");
-        
-        Serial.println("*********** DONE      ***********");
+        digitalWrite(LED_BUILTIN, LOW);
+        digitalWrite(STEPENABLE, HIGH);
 
     }
     else
     {
-        Serial.println("*********** WAITING      ***********");
+        Serial.println("\u001b[43m***********     WAITING        ***********\u001b[0m");
     }
 }

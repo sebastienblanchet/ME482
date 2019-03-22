@@ -141,6 +141,14 @@ uint32_t getMsFromMins(uint32_t minutes)
 }
 
 
+void motorPulse()
+{   
+    pulse = !pulse;
+    digitalWrite(STEPPULSE, pulse);
+    delayMicroseconds(intervalms);
+}
+
+
 /*********************************************************************************
 
 SUBROUTINES
@@ -317,7 +325,7 @@ void setup()
     pinMode(LED_BUILTIN,OUTPUT);
 
     // Attach interrupts for safety circuit
-   attachInterrupt(digitalPinToInterrupt(HWINT),   swISR, RISING);
+   // attachInterrupt(digitalPinToInterrupt(HWINT),   swISR, RISING);
 
     // Turn everything off 
     digitalWrite(KHEATERS,   HIGH);
@@ -340,16 +348,16 @@ void loop()
     // Calibrations values
     const uint32_t windSpeedRPM   = 300;   // Motor speed
     const uint32_t travelTimeSec  = 10;    // Calibrated FWD and BWD travel time
-    const float    TRefC          = 10.0; // Reference platen temp
+    const float    TRefC          = 10.0;  // Reference platen temp
     const float    THystC         = 1.0;   // Hysteresis band
     const uint32_t heatTmins      = 0;     // Time to heat up substance in minutes
-    const uint32_t buzzFlashTmins = 1;    // Time period for buzz and flash
+    const uint32_t buzzFlashTmins = 1;     // Time period for buzz and flash
 
     // Check if user has decided to start
     if ( digitalRead(STARTSW) == LOW )
     {
         // 1. Keep LEDPIN high to notify user
-        Serial.println("\u001b[42m***********     STARTED        ***********\u001b[0m");
+        Serial.println("\u001b[42m***********     AUTOMATIC      ***********\u001b[0m");
         digitalWrite(LEDPIN, LOW);
 
         // 2. Wind the motor to stall
@@ -379,6 +387,7 @@ void loop()
     {
         // Notify of waiting
         Serial.println("\u001b[43m***********     WAITING        ***********\u001b[0m");
+        
         delay(1000);
     }
 }

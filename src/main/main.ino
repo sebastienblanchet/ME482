@@ -40,18 +40,17 @@ PREPROCESSOR
 #define VREF         5       // Arduino reference voltage
 #define RNOM         110000  // Thermistor resistance at 25 deg C
 #define BCOEF        3950    // Thermistor B value for Steinhart equation
-#define RSERIES      10000   // Pull up series resistor for thermistor sense
+#define RSERIES      100000  // Pull up series resistor for thermistor sense
 #define ISENSK       10      // Current sensor gain (i.e 1 V / 100mV/A)
 #define ISENSOFF     25      // Current sensor offset (i.e 2.5 V / 100 mV/A)
 #define TNOM         25      // Nominal temperature room temp 25 def C
-#define STEPS        1600    // Number of steps per rev
+#define STEPS        800     // Number of steps per rev
 #define FWD          LOW     // Motor FWD direction
 #define BWD          HIGH    // Motor BWD direction
 #define TEMPGAIN     0.7286  // Gain for Tplaten 1 to substance (approximation)
 
 /* Pinout based on schematic */
 #define HWINT        2       // hardware interrupt (LOW == GOTO ISR)
-#define STOPINT      3       // hardware interrupt (LOW == GOTO ISR)
 #define KHEATERS     4       // heaters relay pin (HIGH == ON)
 #define BUZZ         5       // buzzer PWM line (HIGH == ON)
 #define LEDPIN       6       // controls LED in UI (HIGH == ON)
@@ -60,8 +59,7 @@ PREPROCESSOR
 #define STEPENABLE   9       // enable the stepper motor (LOW == ON)
 #define STEPDIR      10      // motor spin direction (HIGH == FWD, LOW == BWD)
 #define STEPPULSE    11      // PWM line for motor (HIGH == ON)
-#define LIMITSW      12      // Limit switch for platen closed position (LOW == ON)
-#define RETURNSW     13      // Limit switch for motor return position (LOW == ON)
+#define LED_BUILTIN   13      // Limit switch for motor return position (LOW == ON)
 #define THERM0       A0      // thermistor 1 reading
 #define THERM1       A1      // thermistor 2 reading
 #define ISENS        A2      // motor current reading
@@ -86,7 +84,7 @@ float getTempC(uint32_t countIn)
     return  ToutC;
 }
 
-z
+
 /* Helper function to read avg temp count */
 float avgTempC(void)
 {
@@ -100,10 +98,12 @@ float avgTempC(void)
     float avgTempC = TEMPGAIN * TempPlaten1C;
 
     // Output temperatures to monitor for debugging
-    Serial.print("Platen 1 [C]: ")
+    Serial.print("Platen 1 Temperature [C]: ");
     Serial.println(TempPlaten1C);
-    Serial.print("Approximation [C]: ")
+    Serial.print("Approximation Temperature [C]: ");
     Serial.println(avgTempC);
+    Serial.print("Platen 2 Temperature [C]: ");
+    Serial.println(TempPlaten2C);
 
     return avgTempC;
 }
@@ -148,14 +148,14 @@ SUBROUTINES
 *********************************************************************************/
 
 
-/* Wind the motor to stall */
-void windMotor(uint32_t windSpeedRPM, float ImaxA)
+/* Generic motor function */
+void spinMotor(uint32_t windSpeedRPM, bool direction, uint32_t travelTimeSec)
 {
     // Write enable
     digitalWrite(STEPENABLE, LOW);
 
-    // Set CW motor direction to close platens
-    digitalWrite(STEPDIR, FWD);
+    // Set motor direction
+    digitalWrite(STEPDIR, direction);
 
     // Set pulse low
     digitalWrite(STEPPULSE, LOW);
@@ -163,13 +163,28 @@ void windMotor(uint32_t windSpeedRPM, float ImaxA)
 
     // Get motor period from speed
     uint32_t windTus = getMotorTus(windSpeedRPM);
+    uint32_t fHz = 1 / (2 * windTus * 1E-6);
+    uint32_t counter = travelTimeSec * fHz;
 
-    // Spin motor to stall
-    while ( getIsensA() <  ImaxA )
+    Serial.print("Winding Speed [RPM]: ");
+    Serial.println(windSpeedRPM);
+    Serial.print("Pulse Frequency [Hz]: ");
+    Serial.println(fHz);
+    Serial.print("Travel Time [s]: ");
+    Serial.println(travelTimeSec);
+
+
+    // Spin motor to until specified limit switch is depressed
+    // while ( digitalRead(limitSW) == HIGH )
+    while ( counter != 0 )
     {
+        // Pulse for Tus ==> 1/2 fHz
         pulse = !pulse;
         digitalWrite(STEPPULSE, pulse);
         delayMicroseconds(windTus);
+
+        // Decrement counter 
+        counter--;
     }
 
     // Turn off motor
@@ -184,11 +199,20 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
     const float TmaxC  = TRefC + THystC; // Hysteresis max
     const float TminC  = TRefC - THystC; // Hysteresis min
 
+    // Output
+    Serial.print("Reference temperature [C]: ");
+    Serial.println(TRefC);
+    Serial.print("Maximum hysteresis temperature [C]: ");
+    Serial.println(TmaxC);
+    Serial.print("Minimum hysteresis temperature [C]: ");
+    Serial.println(TminC);
+
+
     // Define average temp
-    float TAvgC = avgTempC();
+    float TAvgC;
 
     // Turn on the heaters to begin warming up
-    digitalWrite(KHEATERS, HIGH);
+    digitalWrite(KHEATERS, LOW);
 
     // Begin preheat
     Serial.println("PREHEAT");
@@ -244,72 +268,6 @@ void heatSubstance(float TRefC, float THystC, uint32_t heatTmins)
 }
 
 
-/* Unwind the motor to limit switch */
-void unwindMotor(uint32_t windSpeedRPM)
-{
-    // Write enable
-    digitalWrite(STEPENABLE, LOW);
-
-    // Set CCW motor direction to open platen
-    digitalWrite(STEPDIR, BWD);
-
-    // Set pulse low
-    digitalWrite(STEPPULSE, LOW);
-    bool pulse = LOW;
-
-    // Get motor period from speed
-    uint32_t windTus = getMotorTus(windSpeedRPM);
-
-    // Spin motor to until limit switch is depressed
-    // Recall, switch uses pull up resistor LOW == depressed
-    while ( digitalRead(LIMITSW) )
-    {
-        pulse = !pulse;
-        digitalWrite(STEPPULSE, pulse);
-        delayMicroseconds(windTus);
-    }
-
-    // Turn off motor
-    digitalWrite(STEPENABLE, HIGH);
-}
-
-
-/* Generic motor function */
-void spinMotor(uint32_t windSpeedRPM, bool direction, uint32_t travelTimeSec)
-{
-    // Write enable
-    digitalWrite(STEPENABLE, LOW);
-
-    // Set motor direction
-    digitalWrite(STEPDIR, direction);
-
-    // Set pulse low
-    digitalWrite(STEPPULSE, LOW);
-    bool pulse = LOW;
-
-    // Get motor period from speed
-    uint32_t windTus = getMotorTus(windSpeedRPM);
-    uint32_t fHz = 1 / (2 * windTus); 
-    uint32_t counter = travelTimeSec * fHz * (1E6);
-
-    // Spin motor to until specified limit switch is depressed
-    // while ( digitalRead(limitSW) == HIGH )
-    while ( counter != 0 )
-    {
-        // Pulse for Tus ==> 1/2 fHz
-        pulse = !pulse;
-        digitalWrite(STEPPULSE, pulse);
-        delayMicroseconds(windTus);
-
-        // Decrement counter 
-        counter--;
-    }
-
-    // Turn off motor
-    digitalWrite(STEPENABLE, HIGH);
-}
-
-
 /* Flash LED and BUZZ*/
 void buzzFlash(uint32_t buzzFlashTmins)
 {
@@ -356,10 +314,10 @@ void setup()
     pinMode(STEPENABLE, OUTPUT);
     pinMode(STEPDIR,    OUTPUT);
     pinMode(STEPPULSE,  OUTPUT);
+    pinMode(LED_BUILTIN,OUTPUT);
 
     // Attach interrupts for safety circuit
-    attachInterrupt(digitalPinToInterrupt(HWINT),   swISR, HIGH);
-    attachInterrupt(digitalPinToInterrupt(STOPINT), swISR, LOW);
+   attachInterrupt(digitalPinToInterrupt(HWINT),   swISR, RISING);
 
     // Turn everything off 
     digitalWrite(KHEATERS,   HIGH);
@@ -370,6 +328,7 @@ void setup()
     digitalWrite(STEPDIR,    HIGH);
     digitalWrite(STEPPULSE,  HIGH);
     digitalWrite(LEDPIN,     HIGH);
+    digitalWrite(LED_BUILTIN,LOW);
 
     // Set up serial port for debugging
     Serial.begin(9600);
@@ -379,42 +338,38 @@ void setup()
 void loop()
 {
     // Calibrations values
-    const uint32_t windSpeedRPM   = 100;   // Motor speed
+    const uint32_t windSpeedRPM   = 300;   // Motor speed
     const uint32_t travelTimeSec  = 10;    // Calibrated FWD and BWD travel time
-    const float    TRefC          = 110.0; // Reference platen temp
+    const float    TRefC          = 10.0; // Reference platen temp
     const float    THystC         = 1.0;   // Hysteresis band
-    const uint32_t heatTmins      = 5;     // Time to heat up substance in minutes
-    const uint32_t buzzFlashTmins = 10;    // Time period for buzz and flash
+    const uint32_t heatTmins      = 0;     // Time to heat up substance in minutes
+    const uint32_t buzzFlashTmins = 1;    // Time period for buzz and flash
 
     // Check if user has decided to start
     if ( digitalRead(STARTSW) == LOW )
     {
         // 1. Keep LEDPIN high to notify user
-        Serial.println("*********** STARTED      ***********");
+        Serial.println("\u001b[42m***********     STARTED        ***********\u001b[0m");
         digitalWrite(LEDPIN, LOW);
 
         // 2. Wind the motor to stall
-        Serial.println("*********** WIND MOTOR   ***********");
+        Serial.println("\u001b[41m***********     WIND MOTOR     ***********\u001b[0m");
         spinMotor(windSpeedRPM, FWD, travelTimeSec);
 
         // 3. Heat up the substance for heatTmins
-        Serial.println("*********** HEATING      ***********");
+        Serial.println("\u001b[41m***********     HEATING        ***********\u001b[0m");
         heatSubstance(TRefC, THystC, heatTmins);
 
         // 4. Turn on fan
-        Serial.println("*********** COOL         ***********");
+        Serial.println("\u001b[46m***********     COOLING        ***********\u001b[0m");
         digitalWrite(KFAN, LOW);
 
         // 5. Unwind the motor to start position
-        Serial.println("*********** UNWIND MOTOR ***********");
+        Serial.println("\u001b[41m***********     UNWIND MOTOR   ***********\u001b[0m");
         spinMotor(windSpeedRPM, BWD, travelTimeSec);
 
-        // 6. Notify user that program has finished
-        Serial.println("*********** BUZZ FLASH   ***********");
-        buzzFlash(buzzFlashTmins);
-
         // 7. Turn fan off
-        Serial.println("*********** END          ***********");
+        Serial.println("\u001b[41m***********     END            ***********\u001b[0m");
         digitalWrite(KFAN, HIGH);
 
         // 8. Turn LEDPIN off to notify end of routine
@@ -423,15 +378,18 @@ void loop()
     else
     {
         // Notify of waiting
-        Serial.println("*********** WAITING      ***********");
+        Serial.println("\u001b[43m***********     WAITING        ***********\u001b[0m");
+        delay(1000);
     }
 }
 
 
 /* SW interrupt, occurs when HWINT is opened || STOPINT is depressed */
-// TODO: confirm swISR
 void swISR()
 {
+    // Notify on board LED
+    digitalWrite(LED_BUILTIN, HIGH);
+
     // Turn off heaters
     digitalWrite(KHEATERS, HIGH);
 
@@ -442,13 +400,16 @@ void swISR()
     // Turn on fans
     digitalWrite(KFAN, LOW);
 
-    // Notify user SW interrupt has occurred
-    tone(BUZZ, 500);
-    digitalWrite(LEDPIN, LOW);
-
     // Unwind motor for a few seconds
-    spinMotor(windSpeedRPM, BWD, 4);
+    spinMotor(300, BWD, 10);
 
-    notone(BUZZ);
+    // Notify on board LED
+    digitalWrite(LED_BUILTIN, LOW);
+
+    delay(5000);
+
+    // Turn on fans
+    digitalWrite(KFAN, HIGH);
+
 }
 
